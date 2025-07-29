@@ -7,14 +7,18 @@ async function handleRequest(request) {
   if (baseUrlParam) {
     // Nếu là request chính, dùng `url` param để xác định target
     targetUrl = new URL(baseUrlParam);
+
     // Ghép thêm toàn bộ query params trừ `url`
     for (const [key, value] of originalUrl.searchParams.entries()) {
       if (key !== "url") {
         targetUrl.searchParams.append(key, value);
       }
     }
-    // Ghép path từ request
-    targetUrl.pathname = originalUrl.pathname;
+
+    // Chỉ ghi đè pathname nếu url gốc không có path
+    if (new URL(baseUrlParam).pathname === "/" || new URL(baseUrlParam).pathname === "") {
+      targetUrl.pathname = originalUrl.pathname;
+    }
   } else {
     // Nếu không có `url` param → xử lý như request phụ (JS/CSS từ SPA)
     const referer = request.headers.get("referer");
@@ -29,7 +33,13 @@ async function handleRequest(request) {
     }
 
     targetUrl = new URL(refBase);
-    targetUrl.pathname = originalUrl.pathname;
+
+    // Chỉ ghi đè nếu url base là `/`
+    if (new URL(refBase).pathname === "/" || new URL(refBase).pathname === "") {
+      targetUrl.pathname = originalUrl.pathname;
+    }
+
+    // Giữ nguyên query string nếu có
     targetUrl.search = originalUrl.search;
   }
 
@@ -56,7 +66,7 @@ async function handleRequest(request) {
     const proxyReq = new Request(targetUrl.toString(), init);
     const proxiedRes = await fetch(proxyReq);
 
-    const res = new Response(proxiedRes.body, proxiedRes); // Stream lại y chang
+    const res = new Response(proxiedRes.body, proxiedRes);
     const reqAllowHeaders = request.headers.get("Access-Control-Request-Headers");
     const allowHeaders = reqAllowHeaders ? reqAllowHeaders : "Content-Type";
 
