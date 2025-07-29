@@ -1,9 +1,36 @@
 async function handleRequest(request) {
-  const url = new URL(request.url);
-  const target = url.searchParams.get("url");
+  const originalUrl = new URL(request.url);
+  const baseUrlParam = originalUrl.searchParams.get("url");
 
-  if (!target) {
-    return new Response("Missing `url` parameter", { status: 400 });
+  let targetUrl;
+
+  if (baseUrlParam) {
+    // Nếu là request chính, dùng `url` param để xác định target
+    targetUrl = new URL(baseUrlParam);
+    // Ghép thêm toàn bộ query params trừ `url`
+    for (const [key, value] of originalUrl.searchParams.entries()) {
+      if (key !== "url") {
+        targetUrl.searchParams.append(key, value);
+      }
+    }
+    // Ghép path từ request
+    targetUrl.pathname = originalUrl.pathname;
+  } else {
+    // Nếu không có `url` param → xử lý như request phụ (JS/CSS từ SPA)
+    const referer = request.headers.get("referer");
+    if (!referer) {
+      return new Response("Missing `url` parameter and referer", { status: 400 });
+    }
+
+    const refUrl = new URL(referer);
+    const refBase = refUrl.searchParams.get("url");
+    if (!refBase) {
+      return new Response("Missing base `url` in referer", { status: 400 });
+    }
+
+    targetUrl = new URL(refBase);
+    targetUrl.pathname = originalUrl.pathname;
+    targetUrl.search = originalUrl.search;
   }
 
   try {
@@ -26,16 +53,17 @@ async function handleRequest(request) {
       init.body = request.body;
     }
 
-    const proxyReq = new Request(target, init);
+    const proxyReq = new Request(targetUrl.toString(), init);
     const proxiedRes = await fetch(proxyReq);
 
     const res = new Response(proxiedRes.body, proxiedRes); // Stream lại y chang
-    const reqAllowHeaders = request.headers.get('Access-Control-Request-Headers');
-    const allowHeaders = reqAllowHeaders ? reqAllowHeaders : 'Content-Type';
+    const reqAllowHeaders = request.headers.get("Access-Control-Request-Headers");
+    const allowHeaders = reqAllowHeaders ? reqAllowHeaders : "Content-Type";
 
     res.headers.set("Access-Control-Allow-Origin", "*");
     res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
     res.headers.set("Access-Control-Allow-Headers", allowHeaders);
+    res.headers.set("Cache-Control", "no-store");
 
     return res;
   } catch (err) {
