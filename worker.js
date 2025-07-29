@@ -5,22 +5,16 @@ async function handleRequest(request) {
   let targetUrl;
 
   if (baseUrlParam) {
-    // Nếu là request chính, dùng `url` param để xác định target
     targetUrl = new URL(baseUrlParam);
-
-    // Ghép thêm toàn bộ query params trừ `url`
     for (const [key, value] of originalUrl.searchParams.entries()) {
       if (key !== "url") {
         targetUrl.searchParams.append(key, value);
       }
     }
-
-    // Chỉ ghi đè pathname nếu url gốc không có path
     if (new URL(baseUrlParam).pathname === "/" || new URL(baseUrlParam).pathname === "") {
       targetUrl.pathname = originalUrl.pathname;
     }
   } else {
-    // Nếu không có `url` param → xử lý như request phụ (JS/CSS từ SPA)
     const referer = request.headers.get("referer");
     if (!referer) {
       return new Response("Missing `url` parameter and referer", { status: 400 });
@@ -33,21 +27,15 @@ async function handleRequest(request) {
     }
 
     targetUrl = new URL(refBase);
-
-    // Chỉ ghi đè nếu url base là `/`
     if (new URL(refBase).pathname === "/" || new URL(refBase).pathname === "") {
       targetUrl.pathname = originalUrl.pathname;
     }
-
-    // Giữ nguyên query string nếu có
     targetUrl.search = originalUrl.search;
   }
 
   try {
     const method = request.method;
     const headers = new Headers(request.headers);
-
-    // Nếu là JSON mà thiếu charset thì thêm vào để tránh lỗi emoji
     const contentType = headers.get("Content-Type");
     if (contentType && contentType.startsWith("application/json") && !contentType.includes("charset")) {
       headers.set("Content-Type", "application/json; charset=UTF-8");
@@ -66,6 +54,38 @@ async function handleRequest(request) {
     const proxyReq = new Request(targetUrl.toString(), init);
     const proxiedRes = await fetch(proxyReq);
 
+    const resContentType = proxiedRes.headers.get("Content-Type") || "";
+
+    // Nếu là HTML, xử lý lại nội dung để rewrite URL
+    if (resContentType.includes("text/html")) {
+      let html = await proxiedRes.text();
+      const baseProxy = `https://proxy.kimtin-tr.workers.dev/?url=`;
+
+      // Chuyển các href/src/action thành proxy link
+      html = html.replace(
+        /(?:href|src|action)=["']([^"']+)["']/gi,
+        (match, p1) => {
+          if (p1.startsWith("javascript:") || p1.startsWith("#")) return match;
+          const newUrl = new URL(p1, targetUrl).toString();
+          return match.replace(p1, `${baseProxy}${encodeURIComponent(newUrl)}`);
+        }
+      );
+
+      const response = new Response(html, {
+        status: proxiedRes.status,
+        headers: {
+          "Content-Type": "text/html; charset=UTF-8",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, HEAD",
+          "Access-Control-Allow-Headers": request.headers.get("Access-Control-Request-Headers") || "Content-Type",
+          "Cache-Control": "no-store",
+        },
+      });
+
+      return response;
+    }
+
+    // Nếu không phải HTML, trả lại nguyên văn
     const res = new Response(proxiedRes.body, proxiedRes);
     const reqAllowHeaders = request.headers.get("Access-Control-Request-Headers");
     const allowHeaders = reqAllowHeaders ? reqAllowHeaders : "Content-Type";
