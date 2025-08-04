@@ -36,6 +36,12 @@ async function handleRequest(request) {
   try {
     const method = request.method;
     const headers = new Headers(request.headers);
+    headers.delete("Cf-Connecting-Ip");
+    headers.delete("x-forwarded-for");
+    headers.delete("x-real-ip");
+    headers.delete("forwarded");
+    headers.delete("cdn-loop");
+    
     const contentType = headers.get("Content-Type");
     if (contentType && contentType.startsWith("application/json") && !contentType.includes("charset")) {
       headers.set("Content-Type", "application/json; charset=UTF-8");
